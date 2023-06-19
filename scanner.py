@@ -1,6 +1,8 @@
 import socket
 import sys
 import subprocess
+import time
+import requests
 
 def scan_port(ip, port):
     try:
@@ -11,7 +13,7 @@ def scan_port(ip, port):
 
 def get_services(ip):
     services = {}
-    for port in range(1, 65535):
+    for port in range(0, 65535):
         if scan_port(ip, port):
             services[port] = get_service_version(port)
 
@@ -31,7 +33,10 @@ def get_service_version(port):
     }
 
     try:
-        p = subprocess.Popen(["nmap", "-p", str(port), ip], stdout=subprocess.PIPE)
+        r = requests.get("https://api.ipify.org/", timeout=1)
+        ip_address = r.text
+
+        p = subprocess.Popen(["nmap", "-p", str(port), ip_address], stdout=subprocess.PIPE)
         output = p.communicate()[0].decode("utf-8")
         version = re.search(r"Version: (.*)", output).group(1)
     except subprocess.CalledProcessError:
@@ -40,12 +45,18 @@ def get_service_version(port):
     return services.get(port, version)
 
 def scan_cctv(ip):
-    for port in [80, 443]:
+    for port in range(0, 65535):
         if scan_port(ip, port):
-            print("CCTV is running on IP address {} and port {}".format(ip, port))
+            if port == 80 or port == 443:
+                return True
+
+    return False
 
 def main():
     ip_range = sys.argv[1]
+    timeout = int(sys.argv[2])
+
+    start = time.time()
 
     for ip in range(ip_range.split(".")[0], ip_range.split(".")[2] + 1):
         for j in range(int(ip_range.split(".")[1]), 255):
@@ -53,16 +64,23 @@ def main():
 
             print("Scanning IP address: {}...".format(ip_address))
 
-            services = get_services(ip_address)
+            services = get_services(ip_address, timeout)
 
             for port, service in services.items():
                 if service == "Unknown":
                     continue
 
-                print("Open port: {} ({})".format(port, service))
+                if scan_port(ip, port, timeout):
+                    print("Open port: {} ({})".format(port, service))
 
-            if scan_cctv(ip_address):
+            if scan_cctv(ip, timeout):
                 print("CCTV is running on IP address {}".format(ip_address))
 
+    print("Scanning took {} seconds".format(time.time() - start))
+
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python scan_cctv.py <IP range> <timeout>")
+        sys.exit(1)
+
     main()
